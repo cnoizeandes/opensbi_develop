@@ -5,9 +5,11 @@
  */
 
 #include <andes/andes45_pma.h>
+#include <andes/andes_pmu.h>
 #include <andes/andes_sbi.h>
 #include <platform_override.h>
 #include <sbi/sbi_domain.h>
+#include <sbi/sbi_error.h>
 #include <sbi_utils/fdt/fdt_helper.h>
 
 static const struct andes45_pma_region renesas_rzfive_pma_regions[] = {
@@ -29,7 +31,7 @@ static int renesas_rzfive_final_init(bool cold_boot, const struct fdt_match *mat
 					 array_size(renesas_rzfive_pma_regions));
 }
 
-int renesas_rzfive_early_init(bool cold_boot, const struct fdt_match *match)
+static int renesas_rzfive_early_init(bool cold_boot, const struct fdt_match *match)
 {
 	/*
 	 * Renesas RZ/Five RISC-V SoC has Instruction local memory and
@@ -47,6 +49,17 @@ int renesas_rzfive_early_init(bool cold_boot, const struct fdt_match *match)
 					    SBI_DOMAIN_MEMREGION_M_RWX);
 }
 
+static int renesas_rzfive_extensions_init(const struct fdt_match *match,
+			  struct sbi_hart_features *hfeatures)
+{
+	int rc;
+	rc = andes_pmu_init();
+	if (rc && rc != SBI_ENOTSUPP)
+		return rc;
+
+	return 0;
+}
+
 static const struct fdt_match renesas_rzfive_match[] = {
 	{ .compatible = "renesas,r9a07g043f01" },
 	{ /* sentinel */ }
@@ -57,4 +70,5 @@ const struct platform_override renesas_rzfive = {
 	.early_init = renesas_rzfive_early_init,
 	.final_init = renesas_rzfive_final_init,
 	.vendor_ext_provider = andes_sbi_vendor_ext_provider,
+	.extensions_init = renesas_rzfive_extensions_init,
 };
