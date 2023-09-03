@@ -8,6 +8,7 @@
  */
 
 #include <platform_override.h>
+#include <andes/andes_pmu.h>
 #include <sbi_utils/fdt/fdt_helper.h>
 #include <sbi_utils/fdt/fdt_fixup.h>
 #include <sbi_utils/sys/atcsmu.h>
@@ -110,6 +111,17 @@ static int ae350_final_init(bool cold_boot, const struct fdt_match *match)
 	return 0;
 }
 
+static int ae350_extensions_init(const struct fdt_match *match,
+			  struct sbi_hart_features *hfeatures)
+{
+	int rc;
+	rc = andes_pmu_init();
+	if (rc && rc != SBI_ENOTSUPP)
+		return rc;
+
+	return 0;
+}
+
 static const struct fdt_match andes_ae350_match[] = {
 	{ .compatible = "andestech,ae350" },
 	{ },
@@ -118,4 +130,5 @@ static const struct fdt_match andes_ae350_match[] = {
 const struct platform_override andes_ae350 = {
 	.match_table = andes_ae350_match,
 	.final_init  = ae350_final_init,
+	.extensions_init = ae350_extensions_init,
 };
