@@ -5,6 +5,7 @@
  */
 
 #include <andes/andes45_pma.h>
+#include <andes/andes_pmu.h>
 #include <andes/andes_sbi.h>
 #include <platform_override.h>
 #include <sbi/sbi_domain.h>
@@ -57,4 +58,5 @@ const struct platform_override renesas_rzfive = {
 	.early_init = renesas_rzfive_early_init,
 	.final_init = renesas_rzfive_final_init,
 	.vendor_ext_provider = andes_sbi_vendor_ext_provider,
+	.extensions_init = andes_pmu_extensions_init,
 };
