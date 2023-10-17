@@ -20,6 +20,101 @@
 #include <sbi_utils/fdt/fdt_pmu.h>
 #include <sbi_utils/fdt/fdt_helper.h>
 
+int fdt_add_pmu_mappings(void *fdt, const struct sbi_pmu_event_select_map *selects,
+		const struct sbi_pmu_event_counter_map *counters,
+		const struct sbi_pmu_raw_event_counter_map *rcounters)
+{
+	int i, err, pmu_noff, root_noff;
+	const char *comp;
+	fdt32_t evt_to_mhpmevent[3];
+	fdt32_t evt_to_mhpmcounters[3];
+	fdt32_t raw_evt_to_mhpmcounters[5];
+
+	/* Try to locate pmu node */
+	pmu_noff = fdt_path_offset(fdt, "/pmu");
+
+	if (pmu_noff > 0) {
+		/*
+		 * If compatible string is "riscv,pmu",
+		 * we assume a valid pmu node has been
+		 * provided.
+		 */
+		comp = fdt_getprop(fdt, pmu_noff, "compatible", NULL);
+		if (comp && !strcmp(comp, "riscv,pmu"))
+			return 0;
+		else
+			return -FDT_ERR_BADVALUE;
+	}
+
+	if (pmu_noff < 0 && pmu_noff != -FDT_ERR_NOTFOUND)
+		return pmu_noff;
+
+	/*
+	 * If "riscv,event-to-mhpmevent" is present, "riscv,event-to-mhpmcounters"
+	 * must be provided as well, but not vice versa (OpenSBI will direct mapping
+	 * event_idx as selector value).
+	 */
+	if (selects && !counters) {
+		sbi_printf("%s: ERR: riscv,event-to-mhpmcounters is mandatory if"
+			" riscv,event-to-mhpmevent is present.", __func__);
+		return SBI_EINVAL;
+	}
+
+	/*
+	 * Create pmu node based on given @selects, @counters
+	 * and @rcounters.
+	 */
+	root_noff = fdt_path_offset(fdt, "/");
+	pmu_noff = fdt_add_subnode(fdt, root_noff, "pmu");
+	if  (pmu_noff < 0)
+		return pmu_noff;
+
+	err = fdt_open_into(fdt, fdt, fdt_totalsize(fdt) + 1024);
+	if (err < 0)
+		return err;
+
+	err = fdt_setprop_string(fdt, pmu_noff, "compatible", "riscv,pmu");
+	if (err)
+		return err;
+
+	/* Add riscv,event-to-mhpmevent */
+	for (i = 0; selects && selects[i].eidx; i++) {
+		evt_to_mhpmevent[0] = cpu_to_fdt32(selects[i].eidx);
+		evt_to_mhpmevent[1] = cpu_to_fdt32(selects[i].select >> 32);
+		evt_to_mhpmevent[2] = cpu_to_fdt32(selects[i].select & ~0UL);
+		err = fdt_appendprop(fdt, pmu_noff, "riscv,event-to-mhpmevent",
+				evt_to_mhpmevent, 3 * sizeof(fdt32_t));
+		if (err)
+			return err;
+	}
+
+	/* Add riscv,event-to-mhpmcounters */
+	for (i = 0; counters && counters[i].eidx_start; i++) {
+		evt_to_mhpmcounters[0] = cpu_to_fdt32(counters[i].eidx_start);
+		evt_to_mhpmcounters[1] = cpu_to_fdt32(counters[i].eidx_end);
+		evt_to_mhpmcounters[2] = cpu_to_fdt32(counters[i].ctr_map);
+		err = fdt_appendprop(fdt, pmu_noff, "riscv,event-to-mhpmcounters",
+				evt_to_mhpmcounters, 3 * sizeof(fdt32_t));
+		if (err)
+			return err;
+	}
+
+	/* Add riscv,raw-event-to-mhpmcounters */
+	for (i = 0; rcounters && rcounters[i].select; i++) {
+		raw_evt_to_mhpmcounters[0] = cpu_to_fdt32(rcounters[i].select >> 32);
+		raw_evt_to_mhpmcounters[1] = cpu_to_fdt32(rcounters[i].select & ~0UL);
+		raw_evt_to_mhpmcounters[2] = cpu_to_fdt32(rcounters[i].select_mask >> 32);
+		raw_evt_to_mhpmcounters[3] = cpu_to_fdt32(rcounters[i].select_mask & ~0UL);
+		raw_evt_to_mhpmcounters[4] = cpu_to_fdt32(rcounters[i].ctr_map);
+		err = fdt_appendprop(fdt, pmu_noff, "riscv,raw-event-to-mhpmcounters",
+				raw_evt_to_mhpmcounters, 5 * sizeof(fdt32_t));
+		if (err)
+			return err;
+	}
+
+	return 0;
+}
+
 int fdt_add_cpu_idle_states(void *fdt, const struct sbi_cpu_idle_state *state)
 {
 	int cpu_node, cpus_node, err, idle_states_node;

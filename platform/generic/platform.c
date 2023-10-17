@@ -265,9 +265,17 @@ static u32 generic_tlb_num_entries(void)
 
 static int generic_pmu_init(void)
 {
+	void *fdt = fdt_get_address();
 	int rc;
 
-	rc = fdt_pmu_setup(fdt_get_address());
+	if (generic_plat && generic_plat->fdt_add_pmu_mappings) {
+		rc = generic_plat->fdt_add_pmu_mappings(fdt,
+							generic_plat_match);
+		if (rc)
+			return rc;
+	}
+
+	rc = fdt_pmu_setup(fdt);
 	if (rc && rc != SBI_ENOENT)
 		return rc;
 

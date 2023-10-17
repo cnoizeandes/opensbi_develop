@@ -19,6 +19,54 @@ struct sbi_cpu_idle_state {
 	uint32_t wakeup_latency_us;
 };
 
+struct sbi_pmu_event_select_map {
+	/**
+	 * The description of an entry in
+	 * riscv,event-to-mhpmevent property
+	 */
+	uint32_t eidx;
+	uint64_t select;
+};
+
+struct sbi_pmu_event_counter_map {
+	/**
+	 * The description of an entry in
+	 * riscv,event-to-mhpmcounters property
+	 */
+	uint32_t eidx_start;
+	uint32_t eidx_end;
+	uint32_t ctr_map;
+};
+
+struct sbi_pmu_raw_event_counter_map {
+	/**
+	 * The description of an entry in
+	 * riscv,raw-event-to-mhpmcounters property
+	 */
+	uint64_t select;
+	uint64_t select_mask;
+	uint32_t ctr_map;
+};
+
+/**
+ * Add PMU properties in the DT
+ *
+ * Add information about event to selector/counter mappings to the
+ * devicetree.
+ *
+ * @param fdt: device tree blob
+ * @param selects: array of event index to selector value mapping
+ *                 descriptions, ending with empty element
+ * @param counters: array of event indexes to counters mapping
+ *                  descriptions, ending with empty element
+ * @param rcounters: array of raw events to counters mapping
+ *                   descriptions, ending with empty element
+ * @return zero on success and -ve on failure
+ */
+int fdt_add_pmu_mappings(void *fdt, const struct sbi_pmu_event_select_map *selects,
+		const struct sbi_pmu_event_counter_map *counters,
+		const struct sbi_pmu_raw_event_counter_map *rcounters);
+
 /**
  * Add CPU idle states to cpu nodes in the DT
  *
