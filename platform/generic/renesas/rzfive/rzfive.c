@@ -5,6 +5,7 @@
  */
 
 #include <andes/andes45_pma.h>
+#include <andes/andes_hpm.h>
 #include <andes/andes_pmu.h>
 #include <andes/andes_sbi.h>
 #include <platform_override.h>
@@ -69,6 +70,7 @@ const struct platform_override renesas_rzfive = {
 	.match_table = renesas_rzfive_match,
 	.early_init = renesas_rzfive_early_init,
 	.final_init = renesas_rzfive_final_init,
+	.fdt_add_pmu_mappings = andes_fdt_add_pmu_mappings,
 	.vendor_ext_provider = andes_sbi_vendor_ext_provider,
 	.extensions_init = renesas_rzfive_extensions_init,
 };

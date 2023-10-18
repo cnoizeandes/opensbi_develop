@@ -8,6 +8,13 @@ config ANDES_SBI
 	bool "Andes SBI support"
 	default n
 
+config ANDES_HPM
+	bool "Andes HPM support"
+	default n
+	help
+	  This provides Andes platform override for creating
+	  event to counter mappings in pmu node.
+
 config ANDES_PMU
 	bool "Andes custom PMU extension support"
 	default n

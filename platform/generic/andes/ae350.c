@@ -19,6 +19,7 @@
 #include <sbi/sbi_ipi.h>
 #include <sbi/sbi_init.h>
 #include <andes/andes45.h>
+#include <andes/andes_hpm.h>
 
 static struct smu_data smu = { 0 };
 extern void __ae350_enable_coherency_warmboot(void);
@@ -128,5 +129,6 @@ static const struct fdt_match andes_ae350_match[] = {
 const struct platform_override andes_ae350 = {
 	.match_table = andes_ae350_match,
 	.final_init  = ae350_final_init,
+	.fdt_add_pmu_mappings = andes_fdt_add_pmu_mappings,
 	.extensions_init = ae350_extensions_init,
 };
