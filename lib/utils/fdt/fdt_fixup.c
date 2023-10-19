@@ -482,6 +482,8 @@ int fdt_reserved_memory_fixup(void *fdt)
 
 void fdt_fixups(void *fdt)
 {
+	struct sbi_scratch *scratch = sbi_scratch_thishart_ptr();
+
 	fdt_aplic_fixup(fdt);
 
 	fdt_imsic_fixup(fdt);
@@ -489,5 +491,7 @@ void fdt_fixups(void *fdt)
 	fdt_plic_fixup(fdt);
 
 	fdt_reserved_memory_fixup(fdt);
-	fdt_pmu_fixup(fdt);
+
+	if (!(scratch->options & SBI_SCRATCH_PRESERVE_PMU_PROP))
+		fdt_pmu_fixup(fdt);
 }
