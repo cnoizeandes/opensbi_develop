@@ -21,8 +21,12 @@ struct sbi_hsm_device {
 	int (*hart_start)(u32 hartid, ulong saddr);
 
 	/**
-	 * Stop (or power-down) the current hart from running. This call
-	 * doesn't expect to return if success.
+	 * Stop (or power-down) the current hart from running.
+	 *
+	 * Return SBI_ENOTSUPP if the hart does not support platform-specific
+	 * stop actions.
+	 *
+	 * For successful stop, the call won't return.
 	 */
 	int (*hart_stop)(void);
 
@@ -34,9 +38,17 @@ struct sbi_hsm_device {
 	 * the hart resumes normal execution.
 	 *
 	 * For successful non-retentive suspend, the hart will resume from
-	 * specified resume address
+	 * the warm boot entry point.
 	 */
-	int (*hart_suspend)(u32 suspend_type, ulong raddr);
+	int (*hart_suspend)(u32 suspend_type);
+
+	/**
+	 * Perform platform-specific actions to resume from a suspended state.
+	 *
+	 * This includes restoring any platform state that was lost during
+	 * non-retentive suspend.
+	 */
+	void (*hart_resume)(void);
 };
 
 struct sbi_domain;

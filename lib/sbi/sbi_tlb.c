@@ -17,7 +17,6 @@
 #include <sbi/sbi_ipi.h>
 #include <sbi/sbi_scratch.h>
 #include <sbi/sbi_tlb.h>
-#include <sbi/sbi_cache.h>
 #include <sbi/sbi_hfence.h>
 #include <sbi/sbi_string.h>
 #include <sbi/sbi_console.h>
@@ -191,31 +190,6 @@ void sbi_tlb_local_fence_i(struct sbi_tlb_info *tinfo)
 	__asm__ __volatile("fence.i");
 }
 
-void sbi_cache_invalidate_line(struct sbi_cache_info *cinfo)
-{
-	cpu_dcache_inval_line(cinfo->start, cinfo->last_hartid);
-}
-
-void sbi_cache_invalidate_range(struct sbi_cache_info *cinfo)
-{
-	cpu_dma_inval_range(cinfo->start, cinfo->size, cinfo->last_hartid);
-}
-
-void sbi_cache_wb_line(struct sbi_cache_info *cinfo)
-{
-	cpu_dcache_wb_line(cinfo->start, cinfo->last_hartid);
-}
-
-void sbi_cache_wb_range(struct sbi_cache_info *cinfo)
-{
-	cpu_dma_wb_range(cinfo->start, cinfo->size, cinfo->last_hartid);
-}
-
-void sbi_cache_wbinval_all(struct sbi_cache_info *cinfo)
-{
-	cpu_dcache_wbinval_all(cinfo->start, cinfo->last_hartid);
-}
-
 static void tlb_pmu_incr_fw_ctr(struct sbi_tlb_info *data)
 {
 	if (unlikely(!data))
@@ -378,11 +352,9 @@ static int tlb_update(struct sbi_scratch *scratch,
 	 * upgrade it to flush all because we can only flush
 	 * 4KB at a time.
 	 */
-	if (tinfo->asid != SBI_CMO) {	/* sbi_tlb_info->asid == sbi_cache_info->extension */
-		if (tinfo->size > tlb_range_flush_limit) {
-			tinfo->start = 0;
-			tinfo->size = SBI_TLB_FLUSH_ALL;
-		}
+	if (tinfo->size > tlb_range_flush_limit) {
+		tinfo->start = 0;
+		tinfo->size = SBI_TLB_FLUSH_ALL;
 	}
 
 	/*

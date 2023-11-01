@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: BSD-2-Clause
+
+menu "Cache Controller Support"
+
+config FDT_CACHE
+	bool "FDT based cache controllers"
+	depends on FDT
+	select CACHE
+	default n
+
+if FDT_CACHE
+
+config FDT_CACHE_ANDES_L2C
+	bool "Andes L2 cache controller"
+	default n
+
+endif
+
+config CACHE
+	bool "Cache controller support"
+	default n
+
+endmenu

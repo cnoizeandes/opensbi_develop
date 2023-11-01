@@ -25,12 +25,11 @@
 #include <sbi/sbi_system.h>
 #include <sbi/sbi_timer.h>
 #include <sbi/sbi_console.h>
-#include "../platform/andes/ae350/smu.h"
-#include "../platform/andes/ae350/platform.h"
+#include <sbi_utils/sys/atcsmu.h>
+#include <andes/andes_sbi.h>
 
 static const struct sbi_hsm_device *hsm_dev = NULL;
 static unsigned long hart_data_offset;
-extern struct smu_data smu;
 
 /** Per hart specific data to manage state transition **/
 struct sbi_hsm_data {
@@ -114,18 +113,17 @@ static void sbi_hsm_hart_wait(struct sbi_scratch *scratch, u32 hartid)
 	struct sbi_hsm_data *hdata = sbi_scratch_offset_ptr(scratch,
 							    hart_data_offset);
 
-
 	if (ae350_suspend_mode[hartid] != 0) {
-		ae350_enter_suspend_mode(false, 1 << PCS_WAKE_MSIP_OFF);
+		ae350_enter_suspend_mode(false, 1 << PCS_WAKE_MSIP_OFFSET);
 	}
 
 	/* Save MIE CSR */
 	saved_mie = csr_read(CSR_MIE);
 
-	/* Set MSIE bit to receive IPI */
-	csr_set(CSR_MIE, MIP_MSIP);
+	/* Set MSIE and MEIE bits to receive IPI */
+	csr_set(CSR_MIE, MIP_MSIP | MIP_MEIP);
 
-	/* Wait for hart_add call*/
+	/* Wait for state transition requested by sbi_hsm_hart_start() */
 	while (atomic_read(&hdata->state) != SBI_HSM_STATE_START_PENDING) {
 		wfi();
 	};
@@ -133,8 +131,10 @@ static void sbi_hsm_hart_wait(struct sbi_scratch *scratch, u32 hartid)
 	/* Restore MIE CSR */
 	csr_write(CSR_MIE, saved_mie);
 
-	/* Clear current HART IPI */
-	plicsw_ipi.ipi_clear(hartid);
+	/*
+	 * No need to clear IPI here because the sbi_ipi_init() will
+	 * clear it for current HART via sbi_platform_ipi_init().
+	 */
 }
 
 const struct sbi_hsm_device *sbi_hsm_get_device(void)
@@ -178,11 +178,17 @@ static int hsm_device_hart_stop(void)
 	return SBI_ENOTSUPP;
 }
 
-static int hsm_device_hart_suspend(u32 suspend_type, ulong raddr)
+static int hsm_device_hart_suspend(u32 suspend_type)
 {
 	if (hsm_dev && hsm_dev->hart_suspend)
-		return hsm_dev->hart_suspend(suspend_type, raddr);
+		return hsm_dev->hart_suspend(suspend_type);
 	return SBI_ENOTSUPP;
+}
+
+static void hsm_device_hart_resume(void)
+{
+	if (hsm_dev && hsm_dev->hart_resume)
+		hsm_dev->hart_resume();
 }
 
 int sbi_hsm_init(struct sbi_scratch *scratch, u32 hartid, bool cold_boot)
@@ -229,9 +235,8 @@ void __noreturn sbi_hsm_exit(struct sbi_scratch *scratch)
 		goto fail_exit;
 
 	if (hsm_device_has_hart_hotplug()) {
-		hsm_device_hart_stop();
-		/* It should never reach here */
-		goto fail_exit;
+		if (hsm_device_hart_stop() != SBI_ENOTSUPP)
+			goto fail_exit;
 	}
 
 	/**
@@ -265,19 +270,6 @@ int sbi_hsm_hart_start(struct sbi_scratch *scratch,
 					  SBI_DOMAIN_EXECUTE))
 		return SBI_EINVALID_ADDR;
 
-	if (smu.addr && ae350_suspend_mode[hartid] == CpuHotplugDeepSleepMode) {
-		volatile uint32_t *PCSn_PCS_CTL =
-			(void *)(smu.addr + PCSm_CTL_OFF(hartid));
-		volatile uint32_t *PCSn_PCS_STATUS =
-			(void *)(smu.addr + PCSm_STATUS_OFF(hartid));
-
-		// wakeup core n
-		*PCSn_PCS_CTL = 0x8;
-
-		// wait for wakeup procees is done
-		while ((*PCSn_PCS_STATUS & 0x7) != 0);
-	}
-
 	rscratch = sbi_hartid_to_scratch(hartid);
 	if (!rscratch)
 		return SBI_EINVAL;
@@ -294,6 +286,20 @@ int sbi_hsm_hart_start(struct sbi_scratch *scratch,
 	if (hstate != SBI_HSM_STATE_STOPPED)
 		return SBI_EINVAL;
 
+	if (smu.addr && ae350_suspend_mode[hartid] == CpuHotplugDeepSleepMode) {
+		volatile uint32_t *PCSn_PCS_CTL =
+			(void *)(smu.addr + PCSm_CTL_OFFSET(hartid));
+		volatile uint32_t *PCSn_PCS_STATUS =
+			(void *)(smu.addr + PCSm_STATUS_OFFSET(hartid));
+
+		// wakeup core n
+		*PCSn_PCS_CTL = 0x8;
+
+		// wait for wakeup procees is done
+		while ((*PCSn_PCS_STATUS & 0x7) != 0)
+			;
+	}
+
 	init_count = sbi_init_count(hartid);
 	rscratch->next_arg1 = priv;
 	rscratch->next_addr = saddr;
@@ -303,7 +309,9 @@ int sbi_hsm_hart_start(struct sbi_scratch *scratch,
 	   (hsm_device_has_hart_secondary_boot() && !init_count)) {
 		return hsm_device_hart_start(hartid, scratch->warmboot_addr);
 	} else {
-		sbi_ipi_raw_send(hartid);
+		int rc = sbi_ipi_raw_send(hartid);
+		if (rc)
+		    return rc;
 	}
 
 	return 0;
@@ -333,7 +341,7 @@ int sbi_hsm_hart_stop(struct sbi_scratch *scratch, bool exitnow)
 	return 0;
 }
 
-static int __sbi_hsm_suspend_ret_default(struct sbi_scratch *scratch)
+static int __sbi_hsm_suspend_default(struct sbi_scratch *scratch)
 {
 	/* Wait for interrupt */
 	wfi();
@@ -373,23 +381,6 @@ static void __sbi_hsm_suspend_non_ret_restore(struct sbi_scratch *scratch)
 	csr_write(CSR_MIP, (hdata->saved_mip & (MIP_SSIP | MIP_STIP)));
 }
 
-static int __sbi_hsm_suspend_non_ret_default(struct sbi_scratch *scratch,
-					     ulong raddr)
-{
-	void (*jump_warmboot)(void) = (void (*)(void))scratch->warmboot_addr;
-
-	/* Wait for interrupt */
-	wfi();
-
-	/*
-	 * Directly jump to warm reboot to simulate resume from a
-	 * non-retentive suspend.
-	 */
-	jump_warmboot();
-
-	return 0;
-}
-
 void sbi_hsm_hart_resume_start(struct sbi_scratch *scratch)
 {
 	int oldstate;
@@ -404,6 +395,8 @@ void sbi_hsm_hart_resume_start(struct sbi_scratch *scratch)
 			   __func__, oldstate);
 		sbi_hart_hang();
 	}
+
+	hsm_device_hart_resume();
 }
 
 void sbi_hsm_hart_resume_finish(struct sbi_scratch *scratch)
@@ -485,15 +478,26 @@ int sbi_hsm_hart_suspend(struct sbi_scratch *scratch, u32 suspend_type,
 		__sbi_hsm_suspend_non_ret_save(scratch);
 
 	/* Try platform specific suspend */
-	ret = hsm_device_hart_suspend(suspend_type, scratch->warmboot_addr);
+	ret = hsm_device_hart_suspend(suspend_type);
 	if (ret == SBI_ENOTSUPP) {
 		/* Try generic implementation of default suspend types */
-		if (suspend_type == SBI_HSM_SUSPEND_RET_DEFAULT) {
-			ret = __sbi_hsm_suspend_ret_default(scratch);
-		} else if (suspend_type == SBI_HSM_SUSPEND_NON_RET_DEFAULT) {
-			ret = __sbi_hsm_suspend_non_ret_default(scratch,
-						scratch->warmboot_addr);
+		if (suspend_type == SBI_HSM_SUSPEND_RET_DEFAULT ||
+		    suspend_type == SBI_HSM_SUSPEND_NON_RET_DEFAULT) {
+			ret = __sbi_hsm_suspend_default(scratch);
 		}
+	}
+
+	/*
+	 * The platform may have coordinated a retentive suspend, or it may
+	 * have exited early from a non-retentive suspend. Either way, the
+	 * caller is not expecting a successful return, so jump to the warm
+	 * boot entry point to simulate resume from a non-retentive suspend.
+	 */
+	if (ret == 0 && (suspend_type & SBI_HSM_SUSP_NON_RET_BIT)) {
+		void (*jump_warmboot)(void) =
+			(void (*)(void))scratch->warmboot_addr;
+
+		jump_warmboot();
 	}
 
 fail_restore_state:
